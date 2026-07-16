@@ -807,6 +807,104 @@ textarea { resize: vertical; }
   .btn { transition: none; }
 }
 
+/* ===========================================================
+   ASISTENTE DE VOZ AG ROBOTICS — Widget flotante
+   =========================================================== */
+.ag-assistant-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1a0a00;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(255, 106, 31, 0.4);
+}
+.ag-assistant-fab.ag-listening {
+  background: var(--ok);
+  box-shadow: 0 0 0 6px rgba(63, 191, 127, 0.25);
+}
+
+.ag-assistant-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 88px;
+  z-index: 999;
+  width: min(340px, calc(100vw - 40px));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--navy-900);
+  border: var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+.ag-assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--navy-950);
+  border-bottom: var(--border);
+  font-family: var(--font-display);
+  color: var(--paper);
+  font-weight: 600;
+}
+.ag-stop-btn {
+  background: transparent;
+  border: 1px solid var(--line-cyan-dim);
+  color: var(--line-cyan);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.ag-transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ag-msg {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-width: 92%;
+}
+.ag-msg-user {
+  align-self: flex-end;
+  background: var(--line-cyan-dim);
+  color: var(--paper);
+}
+.ag-msg-model {
+  align-self: flex-start;
+  background: var(--navy-800);
+  color: var(--paper);
+}
+.ag-status {
+  padding: 8px 14px;
+  border-top: var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent-dim);
+  background: var(--navy-950);
+}
 </style>
 </head>
 <body>
@@ -1052,6 +1150,17 @@ textarea { resize: vertical; }
     <p>© <span id="year"></span> AG ROBOTICS. Hoja de taller — todas las piezas se fabrican bajo pedido. 4 meses de garantía en todos los productos.</p>
   </div>
 </footer>
+
+<!-- ============ ASISTENTE DE VOZ AG ROBOTICS ============ -->
+<button id="ag-assistant-btn" class="ag-assistant-fab" type="button">🎙️ Activar Asistente</button>
+<div id="ag-assistant-panel" class="ag-assistant-panel" hidden>
+  <div class="ag-assistant-header">
+    <span>Asistente AG ROBOTICS</span>
+    <button id="ag-stop-btn" class="ag-stop-btn" type="button">Detener</button>
+  </div>
+  <div id="ag-transcript" class="ag-transcript"></div>
+  <div id="ag-status" class="ag-status">Presiona el botón para hablar.</div>
+</div>
 
 <script>
 /* =========================================================
@@ -1359,5 +1468,158 @@ document.addEventListener("DOMContentLoaded", () => {
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 });
 
+</script>
+
+<!-- ============ ASISTENTE DE VOZ AG ROBOTICS — Lógica ============ -->
+<script>
+(function () {
+  // -----------------------------------------------------------
+  // CONFIGURACIÓN
+  // -----------------------------------------------------------
+  const PROXY_URL = "https://ag-robotics-proxy.guarinangulosebastian2024.workers.dev/";
+
+  // "Personalidad" del asistente: edítala para ajustar el tono o
+  // agregar más datos de tu negocio (precios, materiales, plazos, etc.)
+  const SYSTEM_PROMPT = `Eres el asistente virtual de AG ROBOTICS, un taller
+colombiano de fabricación digital: impresión 3D, piezas a medida, diseño en
+SolidWorks y robótica por encargo (como el robot BB-8). Respondes en español,
+de forma breve, clara y amable, como un agente de atención al cliente experto.
+Conoces los materiales disponibles (PLA, PETG, ABS, Nylon), que los clientes
+pueden subir un archivo STL/SolidWorks o pedir que se diseñe la pieza desde
+una descripción, y que se hacen robots bajo pedido con 4 meses de garantía.
+Si te preguntan algo fuera de este tema, redirige amablemente la conversación
+hacia cómo puedes ayudarles con su pedido en AG ROBOTICS.`;
+
+  const btn = document.getElementById('ag-assistant-btn');
+  const panel = document.getElementById('ag-assistant-panel');
+  const transcriptEl = document.getElementById('ag-transcript');
+  const statusEl = document.getElementById('ag-status');
+  const stopBtn = document.getElementById('ag-stop-btn');
+
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  let recognition = null;
+  let conversando = false;
+  let historial = []; // memoria de la conversación: [{role, parts:[{text}]}]
+
+  function setEstado(txt) {
+    statusEl.textContent = txt;
+  }
+
+  function agregarMensaje(rol, texto) {
+    const div = document.createElement('div');
+    div.className = 'ag-msg ag-msg-' + rol;
+    div.textContent = texto;
+    transcriptEl.appendChild(div);
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  }
+
+  function crearReconocimiento() {
+    const r = new SpeechRecognitionAPI();
+    r.lang = 'es-CO';
+    r.continuous = false;
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+
+    r.onresult = (e) => {
+      const texto = e.results[0][0].transcript;
+      agregarMensaje('user', texto);
+      preguntarIA(texto);
+    };
+
+    r.onerror = (e) => {
+      console.error('Error de reconocimiento de voz:', e.error);
+      if (e.error === 'no-speech') {
+        setEstado('No te escuché, intenta de nuevo.');
+      } else {
+        setEstado('Hubo un problema con el micrófono.');
+      }
+      if (conversando) setTimeout(empezarEscucha, 900);
+    };
+
+    return r;
+  }
+
+  function empezarEscucha() {
+    if (!conversando) return;
+    recognition = crearReconocimiento();
+    setEstado('🎤 Escuchando…');
+    btn.classList.add('ag-listening');
+    try { recognition.start(); } catch (e) { /* ya estaba iniciado */ }
+  }
+
+  async function preguntarIA(texto) {
+    setEstado('💭 Pensando…');
+    btn.classList.remove('ag-listening');
+    historial.push({ role: 'user', parts: [{ text: texto }] });
+
+    try {
+      const resp = await fetch(PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: historial
+        })
+      });
+
+      if (!resp.ok) throw new Error('Respuesta HTTP ' + resp.status);
+
+      const data = await resp.json();
+      const respuesta =
+        (data && data.candidates && data.candidates[0] &&
+         data.candidates[0].content && data.candidates[0].content.parts &&
+         data.candidates[0].content.parts[0].text) ||
+        'Perdón, no pude generar una respuesta. ¿Puedes repetir la pregunta?';
+
+      historial.push({ role: 'model', parts: [{ text: respuesta }] });
+      agregarMensaje('model', respuesta);
+      hablar(respuesta);
+    } catch (err) {
+      console.error('Error al conectar con el asistente:', err);
+      setEstado('Hubo un error de conexión.');
+      const msg = 'Lo siento, tuve un problema de conexión. ¿Puedes repetir?';
+      agregarMensaje('model', msg);
+      hablar(msg);
+    }
+  }
+
+  function hablar(texto) {
+    setEstado('🔊 Hablando…');
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = 'es-ES';
+    u.onend = () => {
+      if (conversando) {
+        empezarEscucha();
+      } else {
+        setEstado('Presiona el botón para hablar.');
+      }
+    };
+    window.speechSynthesis.speak(u);
+  }
+
+  btn.addEventListener('click', () => {
+    if (!SpeechRecognitionAPI) {
+      alert('Tu navegador no soporta reconocimiento de voz. Usa Google Chrome.');
+      return;
+    }
+    panel.hidden = false;
+    if (!conversando) {
+      conversando = true;
+      btn.textContent = '🎙️ Asistente activo';
+      empezarEscucha();
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    conversando = false;
+    window.speechSynthesis.cancel();
+    if (recognition) { try { recognition.stop(); } catch (e) {} }
+    btn.classList.remove('ag-listening');
+    btn.textContent = '🎙️ Activar Asistente';
+    setEstado('Detenido. Presiona el botón para hablar de nuevo.');
+  });
+})();
 </script>
 </body>
