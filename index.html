@@ -1487,6 +1487,7 @@ de forma breve, clara y amable, como un agente de atención al cliente experto.
 Conoces los materiales disponibles (PLA, PETG, ABS, Nylon), que los clientes
 pueden subir un archivo STL/SolidWorks o pedir que se diseñe la pieza desde
 una descripción, y que se hacen robots bajo pedido con 4 meses de garantía.
+Responde en frases cortas, pensando en que se van a leer en voz alta.
 Si te preguntan algo fuera de este tema, redirige amablemente la conversación
 hacia cómo puedes ayudarles con su pedido en AG ROBOTICS.`;
 
@@ -1500,7 +1501,25 @@ hacia cómo puedes ayudarles con su pedido en AG ROBOTICS.`;
 
   let recognition = null;
   let conversando = false;
-  let historial = []; // memoria de la conversación: [{role, parts:[{text}]}]
+  let historial = []; // memoria de la conversación: [{role:'user'|'assistant', content:'...'}]
+
+  // ---------- Selección de una voz en español que suene natural ----------
+  // Las voces "Google español" (que Chrome descarga automáticamente si hay
+  // internet) suenan mucho más naturales que la voz de Windows por defecto.
+  let vozElegida = null;
+  function elegirVoz() {
+    const voces = window.speechSynthesis.getVoices();
+    if (!voces.length) return;
+    vozElegida =
+      voces.find(v => v.lang.startsWith('es') && /google/i.test(v.name)) ||
+      voces.find(v => v.lang === 'es-US') ||
+      voces.find(v => v.lang.startsWith('es')) ||
+      null;
+  }
+  elegirVoz();
+  if ('onvoiceschanged' in window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = elegirVoz;
+  }
 
   function setEstado(txt) {
     statusEl.textContent = txt;
@@ -1551,28 +1570,30 @@ hacia cómo puedes ayudarles con su pedido en AG ROBOTICS.`;
   async function preguntarIA(texto) {
     setEstado('💭 Pensando…');
     btn.classList.remove('ag-listening');
-    historial.push({ role: 'user', parts: [{ text: texto }] });
+    historial.push({ role: 'user', content: texto });
 
     try {
       const resp = await fetch(PROXY_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: historial
+          system: SYSTEM_PROMPT,
+          messages: historial
         })
       });
 
-      if (!resp.ok) throw new Error('Respuesta HTTP ' + resp.status);
-
       const data = await resp.json();
+
+      if (!resp.ok) {
+        console.error('Error del asistente:', data);
+        throw new Error((data && data.error && data.error.message) || ('HTTP ' + resp.status));
+      }
+
       const respuesta =
-        (data && data.candidates && data.candidates[0] &&
-         data.candidates[0].content && data.candidates[0].content.parts &&
-         data.candidates[0].content.parts[0].text) ||
+        (data && data.content && data.content[0] && data.content[0].text) ||
         'Perdón, no pude generar una respuesta. ¿Puedes repetir la pregunta?';
 
-      historial.push({ role: 'model', parts: [{ text: respuesta }] });
+      historial.push({ role: 'assistant', content: respuesta });
       agregarMensaje('model', respuesta);
       hablar(respuesta);
     } catch (err) {
@@ -1584,19 +1605,34 @@ hacia cómo puedes ayudarles con su pedido en AG ROBOTICS.`;
     }
   }
 
+  // Partimos la respuesta en frases y las hablamos una por una — esto evita
+  // el "trabarse" que hace Chrome con textos largos en una sola frase.
   function hablar(texto) {
     setEstado('🔊 Hablando…');
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(texto);
-    u.lang = 'es-ES';
-    u.onend = () => {
-      if (conversando) {
-        empezarEscucha();
-      } else {
-        setEstado('Presiona el botón para hablar.');
+
+    const frases = texto.match(/[^.!?]+[.!?]*/g) || [texto];
+    let i = 0;
+
+    function siguienteFrase() {
+      if (i >= frases.length) {
+        if (conversando) {
+          empezarEscucha();
+        } else {
+          setEstado('Presiona el botón para hablar.');
+        }
+        return;
       }
-    };
-    window.speechSynthesis.speak(u);
+      const u = new SpeechSynthesisUtterance(frases[i].trim());
+      if (vozElegida) u.voice = vozElegida;
+      u.lang = 'es-ES';
+      u.rate = 1;
+      u.pitch = 1;
+      u.onend = () => { i++; siguienteFrase(); };
+      window.speechSynthesis.speak(u);
+    }
+
+    siguienteFrase();
   }
 
   btn.addEventListener('click', () => {
