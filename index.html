@@ -808,6 +808,67 @@ textarea { resize: vertical; }
 }
 
 /* ===========================================================
+   BOTÓN DE WHATSAPP — nav + flotante
+   =========================================================== */
+.nav-whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #25D366;
+  color: #06210f !important;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  opacity: 1 !important;
+  border: none !important;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-whatsapp-btn:hover, .nav-whatsapp-btn:focus-visible {
+  background: #1ebe5b;
+}
+
+/* ===========================================================
+   VIDEOS
+   =========================================================== */
+.videos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin-top: 24px;
+}
+.video-card {
+  background: var(--navy-900);
+  border: var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  padding-bottom: 14px;
+}
+.video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--navy-950);
+}
+.video-frame iframe, .video-frame video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+.video-card h3 {
+  margin: 12px 14px 4px;
+  color: var(--paper);
+  font-family: var(--font-display);
+}
+.video-card p {
+  margin: 0 14px;
+  color: var(--accent-dim);
+  font-size: 0.9rem;
+}
+
+/* ===========================================================
    ASISTENTE DE VOZ AG ROBOTICS — Widget flotante
    =========================================================== */
 .ag-assistant-fab {
@@ -921,9 +982,11 @@ textarea { resize: vertical; }
       <a href="#catalogo">Catálogo</a>
       <a href="#pedido">Encargar pieza</a>
       <a href="#portafolio">Portafolio</a>
+      <a href="#videos">Videos</a>
       <a href="#robots-stock">Robots</a>
       <a href="#contacto">Contacto</a>
     </nav>
+    <a href="#" id="nav-whatsapp-btn" class="nav-whatsapp-btn" target="_blank" rel="noopener">WhatsApp</a>
   </div>
 </header>
 
@@ -1099,6 +1162,17 @@ textarea { resize: vertical; }
     <p class="section-sub">Cosas que he diseñado, imprimido y puesto a andar en el taller — construidos con los mejores componentes electrónicos disponibles en el mercado, con 4 meses de garantía.</p>
 
     <div id="portfolio-grid" class="portfolio-grid"><!-- se llena con script.js --></div>
+  </div>
+</section>
+
+<!-- ============ VIDEOS ============ -->
+<section id="videos" class="section section-alt">
+  <div class="wrap">
+    <p class="eyebrow">03B · VIDEOS</p>
+    <h2>Míralo en acción</h2>
+    <p class="section-sub">Videos reales del taller, las piezas y los robots — para que veas cómo trabajamos antes de pedir.</p>
+
+    <div id="videos-grid" class="videos-grid"><!-- se llena con script.js --></div>
   </div>
 </section>
 
@@ -1439,6 +1513,52 @@ function fillFooterContact() {
   if (em) em.textContent = CONFIG.email;
 }
 
+/* ========================================================= */
+/* VIDEOS — edita este arreglo para agregar/quitar videos.
+   Puedes usar un link de YouTube (embed) o un archivo .mp4
+   subido junto a tu index.html.
+========================================================= */
+const VIDEOS = [
+  {
+    titulo: "Cómo trabajamos en el taller",
+    descripcion: "Un vistazo rápido a la impresora en acción.",
+    // Reemplaza esta URL por tu video real de YouTube (usa el link de "Insertar"/"Embed")
+    youtube: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  },
+];
+
+function renderVideos() {
+  const grid = document.getElementById("videos-grid");
+  if (!grid) return;
+
+  if (!VIDEOS.length) {
+    grid.innerHTML = `<p class="section-sub">Muy pronto vas a poder ver videos del taller aquí.</p>`;
+    return;
+  }
+
+  grid.innerHTML = VIDEOS.map(
+    (v) => `
+    <article class="video-card">
+      <div class="video-frame">
+        ${
+          v.youtube
+            ? `<iframe src="${v.youtube}" title="${v.titulo}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`
+            : `<video controls preload="metadata" src="${v.mp4}"></video>`
+        }
+      </div>
+      <h3>${v.titulo}</h3>
+      ${v.descripcion ? `<p>${v.descripcion}</p>` : ""}
+    </article>`
+  ).join("");
+}
+
+/* ---------- Botón de WhatsApp (fijo en el header) ---------- */
+function setupWhatsappButtons() {
+  const link = `https://wa.me/${CONFIG.whatsappNumber}?text=${encodeURIComponent("Hola, quiero hacer un pedido en AG ROBOTICS")}`;
+  const nav = document.getElementById("nav-whatsapp-btn");
+  if (nav) nav.href = link;
+}
+
 function setupRobotStock() {
   const expandBtn = document.getElementById("bb8-expand-btn");
   const card = document.getElementById("bb8-stock-card");
@@ -1461,9 +1581,11 @@ function setupRobotStock() {
 document.addEventListener("DOMContentLoaded", () => {
   renderCatalog();
   renderPortfolio();
+  renderVideos();
   setupOrderForm();
   fillFooterContact();
   setupRobotStock();
+  setupWhatsappButtons();
   const yearEl = document.getElementById("year");
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 });
